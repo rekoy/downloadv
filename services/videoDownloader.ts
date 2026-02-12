@@ -16,12 +16,10 @@ interface VideoInfo {
   success: boolean
   title: string
   thumbnail: string
-  links: {
-    [key: string]: string
-  }
+  links: Record<string, string>
   channel?: string
   channelUrl?: string
-  error?: string
+  warning?: string
 }
 
 // Function to extract video ID or create a meaningful filename from URL
@@ -100,7 +98,7 @@ function createMockResponse(url: string): VideoInfo {
   if (platform === "TikTok") thumbnail = "https://via.placeholder.com/540x960.png?text=TikTok+Video"
 
   // Instead of using the original URL, provide a message that the video needs to be accessed directly
-  const links: { [key: string]: string } = {
+  const links: Record<string, string> = {
     "Visit Source": url, // This will open the original page
   }
 
@@ -111,158 +109,36 @@ function createMockResponse(url: string): VideoInfo {
     links,
     channel: `${platform} Channel`,
     channelUrl: "",
+    warning: "Downloader unavailable. Showing source link instead.",
   }
 }
 
-export function getVideoDownloadLink(url: string): Promise<VideoInfo> {
-  console.log("Starting API request for URL:", url)
-  return new Promise((resolve, reject) => {
-    if (!url) {
-      reject(new Error("URL is required"))
-      return
+export async function getVideoDownloadLink(url: string): Promise<VideoInfo> {
+  if (!url) throw new Error("URL is required")
+
+  try {
+    const res = await fetch("/api/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    })
+
+    // Our route always returns 200 with either real links or a safe fallback.
+    // If the route itself errors (non-200), bubble up a readable error.
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(text || `Server error: ${res.status}`)
     }
 
-    // Set a flag to track if we've already resolved or rejected the promise
-    let isCompleted = false
-
-    // Set a timeout to use the fallback if the API takes too long
-    const fallbackTimeout = setTimeout(() => {
-      if (!isCompleted) {
-        console.log("API request timed out, using fallback")
-        isCompleted = true
-
-        // Create a mock response as a fallback
-        const mockResponse = createMockResponse(url)
-        resolve(mockResponse)
-      }
-    }, 10000) // 10 second timeout before fallback
-
-    // Using the exact code pattern provided
-    const data = null
-
-    const xhr = new XMLHttpRequest()
-    xhr.withCredentials = true
-
-    xhr.addEventListener("readystatechange", function () {
-      if (this.readyState === this.DONE) {
-        console.log("Response Status:", this.status)
-        console.log("Response Headers:", this.getAllResponseHeaders())
-
-        // Log the raw response text, even if it's empty
-        console.log("Raw API Response:", this.responseText ? this.responseText : "(empty response)")
-
-        // Clear the fallback timeout since we got a response
-        clearTimeout(fallbackTimeout)
-
-        if (this.status >= 200 && this.status < 300 && this.responseText && this.responseText.trim() !== "") {
-          try {
-            const result: ApiResponse = JSON.parse(this.responseText)
-            console.log("Parsed API Response:", result)
-
-            if (result.error) {
-              if (!isCompleted) {
-                isCompleted = true
-                reject(new Error(result.error || "Unknown API error"))
-              }
-              return
-            }
-
-            const videoInfo: VideoInfo = {
-              success: true,
-              title: result.caption || result.title || `${result.hosting} Video`,
-              thumbnail: result.thumb || "",
-              links: {},
-              channel: result.channel,
-              channelUrl: result.channel_url,
-            }
-
-            // Handle both direct download_url and formats array
-            if (result.formats && result.formats.length > 0) {
-              result.formats.forEach((format) => {
-                videoInfo.links[format.format] = format.download_url
-              })
-            } else if (result.download_url) {
-              // For Twitter and other platforms that provide direct download URL
-              const quality = result.type === "video" ? "Download Video" : "Download"
-              videoInfo.links[quality] = result.download_url
-            }
-
-            if (Object.keys(videoInfo.links).length === 0) {
-              if (!isCompleted) {
-                isCompleted = true
-                reject(new Error("No download links found in the API response"))
-              }
-              return
-            }
-
-            if (!isCompleted) {
-              isCompleted = true
-              resolve(videoInfo)
-            }
-          } catch (error) {
-            console.error("Error processing response:", error)
-            if (!isCompleted) {
-              isCompleted = true
-
-              // Use fallback on parse error
-              console.log("API response parsing failed, using fallback")
-              const mockResponse = createMockResponse(url)
-              resolve(mockResponse)
-            }
-          }
-        } else {
-          // API returned an error or empty response
-          console.error("API Error or Empty Response:", this.status, this.responseText || "(empty)")
-
-          if (!isCompleted) {
-            isCompleted = true
-
-            // Use fallback on API error
-            console.log("API returned error or empty response, using fallback")
-            const mockResponse = createMockResponse(url)
-            resolve(mockResponse)
-          }
-        }
-      }
-    })
-
-    xhr.addEventListener("error", (e) => {
-      console.error("Network Error:", e)
-      clearTimeout(fallbackTimeout)
-
-      if (!isCompleted) {
-        isCompleted = true
-
-        // Use fallback on network error
-        console.log("Network error occurred, using fallback")
-        const mockResponse = createMockResponse(url)
-        resolve(mockResponse)
-      }
-    })
-
-    xhr.addEventListener("timeout", () => {
-      console.error("Request timed out")
-      clearTimeout(fallbackTimeout)
-
-      if (!isCompleted) {
-        isCompleted = true
-
-        // Use fallback on timeout
-        console.log("API request timed out, using fallback")
-        const mockResponse = createMockResponse(url)
-        resolve(mockResponse)
-      }
-    })
-
-    // Using the exact API endpoint and configuration provided
-    const apiUrl = `https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/get-info-rapidapi?url=${encodeURIComponent(url)}`
-    console.log("Full API URL:", apiUrl)
-
-    xhr.open("GET", apiUrl)
-    xhr.setRequestHeader("x-rapidapi-key", "b6b90be852msh3f00f26aa5cf0bfp1f1b8ajsn5b2a8f08a124")
-    xhr.setRequestHeader("x-rapidapi-host", "instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com")
-    xhr.timeout = 10000 // 10 second timeout
-
-    xhr.send(data)
-  })
+    const data = (await res.json()) as VideoInfo
+    // Validate minimal structure
+    if (!data || !data.success || !data.links || Object.keys(data.links).length === 0) {
+      throw new Error("Failed to get downloadable links from server.")
+    }
+    return data
+  } catch (err) {
+    console.error("getVideoDownloadLink failed:", err)
+    // Final fallback on unexpected client-side failure
+    return createMockResponse(url)
+  }
 }
