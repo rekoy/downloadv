@@ -91,8 +91,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 })
     }
 
-    // Use a server-side key if available. Note: For production, do NOT use a NEXT_PUBLIC_ key.
-    const RAPIDAPI_KEY = process.env.NEXT_PUBLIC_VIDEO_API_KEY || process.env.VIDEO_API_KEY
+    const RAPIDAPI_KEY = process.env.VIDEO_API_KEY
     const RAPIDAPI_HOST = "instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com"
 
     if (!RAPIDAPI_KEY) {
